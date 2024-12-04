@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+ <head>
+   <script src="complex.js"></script>
+
+ </head>
+
+ <body>
+   <h1> almond bread fractals </h1>
+
+   <p>click and drag an area in the image to zoom in.
+     (sorry, dont have zoom out yet)
+   </p>
+
+   <table>
+     <tr id="from">
+      <th>FROM</th>
+      <td>real</td>
+      <td><input class="real" type="text"></td>
+      <td>imaginary <input class="imaginary" type="text"></td>
+     </tr>
+     <tr id="to">
+      <th>TO</th>
+      <td>real</td>
+      <td><input class="real" type="text"></td>
+      <td>imaginary <input class="imaginary" type="text"></td>
+     </tr>
+     <tr>
+       <td>
+         <label for="cycle">
+           <input id="cycle" type="checkbox">
+           cycle colors
+         </label>
+       </td>
+     </tr>
+   </table>
+
+   <canvas id="canv"
+           width="1000"
+           height="500"
+           style="border:3px black solid"
+     ></canvas>
+  <h2>working on </h2>
+  <ul>
+    <li>have coords in query params so back button works</li>
+    <li>type in the coords to explore and hit a button to go there</li>
+    <li>the selection rectangle is borked. needs to save the canvas and return to it
+        before drawing the rectangle</li>
+  </ul>
+
+  <script>
+
+    function navigate(args) {
+      const params = Object.keys(args).sort().map(key => {
+        const encodedKey = encodeURIComponent(key);
+        if (encodedKey !== key) {
+          console.warn(`consider renaming  parameter ${key}`);
+        }
+        const value = args[key];
+        if (value === '' || value === null || value === undefined) return '';
+        if (Array.isArray(value)) {
+          return value
+            .filter(v => v !== '' && v !== undefined && v !== null)
+            .map(v => `${v}`)
+            .sort()
+            .map(s => `${encodedKey}=${encodeValue(s)}`)
+            .join('&');
+        }
+        return `${encodedKey}=${encodeValue(value)}`;
+      })
+            .filter(s => s !== '')
+            .join('&');
+
+      const url = [document.location.origin,
+                   document.location.pathname,
+                   '?',
+                   params].join('');
+
+      console.log( 'url -->', args );
+      window.history.pushState( args, '', url);
+      return fill( args )
+        .then( rows => {
+          ctx.save();
+          return rows;
+        } );
+    }
+
+    function encodeValue(val) {
+      // if a number, make sure val doesn't barf
+      val = val === undefined ? '' : `${val}`;
+      return val.match( /[+=?#&]/ )
+        ? encodeURIComponent( val )
+        : encodeURI( val.replace( / /g, '+' ) );
+    }
+
+
+    function explode_p(c) {
+
+      let z = new Complex(0,0);
+      let count = 0;
+
+      while(1) {
+        const z_next = z.mul(z).add( c );
+
+        if (z_next.abs() === 0 || count > 150) {
+          return 0;
+        }
+        if (z_next.abs() > 1000) {
+          return count;
+        }
+        z = z_next;
+        count++;
+      }
+    }
+
+    const gridX = [];
+    const gridY = [];
+
+    function set(args) {
+      args = args || {};
+
+      const height = args.height;
+      const width  = args.width;
+
+      let   start_y = args.start_y === undefined ? -1.5  : args.start_y;
+      let   start_x = args.start_x === undefined ? -3  : args.start_x;
+
+      let   end_y = args.end_y === undefined ? 1.5  : args.end_y;
+      let   end_x = args.end_x === undefined ? 3  : args.end_x;
+
+      if (start_x > end_x) {
+        const x = start_x;
+        start_x = end_x;
+        end_x = x;
+      }
+
+      if (start_y > end_y) {
+        const y = start_y;
+        start_y = end_y;
+        end_y = y;
+      }
+// end_x - start_x = 2 * (end_y - start_y)
+// end_x = start_x + 2 * (end_y - start_y )
+      // enforce scaling
+      end_x = start_x + 2 * (end_y - start_y);
+
+
+      const inc_y = (end_y - start_y) / height;
+      const inc_x = (end_x - start_x) / width;
+
+      const rows = [];
+      let y = start_y;
+      for (let y_idx = 0; y_idx < height;  y_idx++) {
+
+        gridY[y_idx] = y;
+
+        const row = [];
+        rows.push(row);
+        let x = start_x;
+        for (let x_idx = 0; x_idx < width;  x_idx++) {
+
+          y_idx === 0 && (gridX[x_idx] = x);
+
+          const c = new Complex( x, y );
+          const explodes = explode_p( c );
+          row.push(explodes);
+          x += inc_x;
+        }
+        y += inc_y;
+      }
+
+      return rows;
+    }
+    let cycleColors = false;
+    let isDrawing = false;
+    function draw(rows, args) {
+      isDrawing = true;
+      let start_y = args.start_y;
+      let end_y = args.end_y;
+      let start_x = args.start_x;
+      let end_x = args.end_x;
+
+      if (start_x > end_x) {
+        const x = start_x;
+        start_x = end_x;
+        end_x = x;
+      }
+      if (start_x < 0) start_x = 0;
+
+      if (start_y > end_y) {
+        const y = start_y;
+        start_y = end_y;
+        end_y = y;
+      }
+      if (start_y < 0) start_y = 0;
+
+      for (let y_idx = start_y; y_idx < end_y; y_idx++) {
+        for (let x_idx = start_x; x_idx < end_x; x_idx++) {
+          const explodes = rows[y_idx][x_idx];
+          const color = explodes == 0 ? 'black' : colors[explodes % colors.length];
+          ctx.fillStyle = color;
+          ctx.fillRect( x_idx, y_idx, 1, 1 );
+        }
+      }
+      isDrawing = false;
+    }
+
+//    const colors = "aliceblue, azure, ghostwhite, mintcream, whitesmoke, snow, white, honeydew, lightcyan, lavenderblush, lavender, floralwhite, ivory, seashell, linen, oldlace, lightyellow, beige, cornsilk, mistyrose, antiquewhite, papayawhip, lightgoldenrodyellow, gainsboro, lemonchiffon, blanchedalmond, bisque, lightgrey, lightgray, paleturquoise, powderblue, thistle, peachpuff, pink, moccasin, lightblue, wheat, palegoldenrod, navajowhite, lightsteelblue, lightpink, plum, silver, lightskyblue, skyblue, khaki, violet, aquamarine, palegreen, darkgrey, darkgray, tan, burlywood, orchid, lightgreen, darkseagreen, lightsalmon, rosybrown, hotpink, darksalmon, mediumaquamarine, mediumpurple, darkkhaki, cornflowerblue, lightcoral, palevioletred, mediumorchid, mediumturquoise, sandybrown, turquoise, salmon, mediumslateblue, lightslategrey, lightslategray, cadetblue, gray, grey, slategray, slategrey, slateblue, coral, greenyellow, steelblue, darkorchid, yellowgreen, peru, royalblue, indianred, blueviolet, dodgerblue, lightseagreen, tomato, goldenrod, mediumseagreen, aqua, cyan, deepskyblue, dimgrey, dimgray, darkturquoise, fuchsia, magenta, deeppink, yellow, gold, mediumspringgreen, mediumvioletred, rebeccapurple, darkviolet, chocolate, orange, springgreen, darkgoldenrod, darkslateblue, darkorange, olivedrab, seagreen, chartreuse, sienna, lawngreen, limegreen, darkcyan, darkmagenta, darkolivegreen, teal, purple, crimson, olive, brown, darkslategray, darkslategrey, orangered, saddlebrown, firebrick, forestgreen, indigo, midnightblue, blue, mediumblue, lime, red, darkblue, navy, darkred, green, maroon, darkgreen".split(', ');
+
+    const colors = "lightgrey, indianred, lightgray, grey, gray, gainsboro, maroon, firebrick, dimgrey, dimgray, lightcoral, red, darkgrey, rosybrown, darkgray, darkred, brown, white, whitesmoke, silver, snow, mistyrose, salmon, tomato, darksalmon, coral, orangered, lightsalmon, sienna, seashell, saddlebrown, chocolate, sandybrown, peachpuff, peru, linen, bisque, darkorange, burlywood, antiquewhite, tan, navajowhite, blanchedalmond, papayawhip, moccasin, orange, wheat, oldlace, floralwhite, darkgoldenrod, goldenrod, cornsilk, gold, lemonchiffon, khaki, palegoldenrod, darkkhaki, beige, olive, lightyellow, yellow, lightgoldenrodyellow, ivory, olivedrab, yellowgreen, darkolivegreen, greenyellow, chartreuse, lawngreen, palegreen, darkseagreen, lightgreen, honeydew, limegreen, lime, forestgreen, darkgreen, green, seagreen, mediumseagreen, springgreen, mintcream, mediumspringgreen, mediumaquamarine, aquamarine, turquoise, lightseagreen, mediumturquoise, paleturquoise, darkslategray, darkslategrey, cyan, teal, azure, lightcyan, aqua, darkcyan, darkturquoise, cadetblue, powderblue, lightblue, deepskyblue, skyblue, lightskyblue, steelblue, aliceblue, dodgerblue, slategray, slategrey, lightslategrey, lightslategray, lightsteelblue, cornflowerblue, royalblue, ghostwhite, mediumblue, darkblue, midnightblue, lavender, navy, blue, slateblue, darkslateblue, mediumslateblue, mediumpurple, rebeccapurple, blueviolet, indigo, darkorchid, darkviolet, mediumorchid, thistle, violet, fuchsia, darkmagenta, purple, plum, magenta, orchid, mediumvioletred, deeppink, hotpink, lavenderblush, palevioletred, crimson, pink, lightpink".split(", ");
+
+//    const colors = "red green yellow blue orange magenta cyan white purple hotpink".split( " " );
+
+    let inter;
+    function cycle( rows ) {
+      if (inter) {
+        clearInterval(inter);
+      }
+      inter = setInterval( () => {
+        if (cycleColors && !isDrawing) {
+          const c = colors.shift();
+          colors.push( c );
+          draw( rows, { start_x: 0,
+                        end_x: width,
+                        start_y: 0,
+                        end_y: height
+                      } );
+        }
+      }, 120 );
+    }
+
+    let isFilling = false;
+
+    function fill(args) {
+      args = args || {};
+      console.log( args, "FILLING" );
+      canv.style.cursor = 'wait';
+      return new Promise( (res,rej) => {
+        isFilling = true;
+        args.height = Math.abs(args.height || 500);
+        args.width = Math.abs(args.width || 1000 );
+        const rows = set(args);
+        draw( rows, { start_x: 0,
+                      end_x: args.width,
+                      start_y: 0,
+                      end_y: args.height
+                    } );
+        isFilling = false;
+        canv.style.cursor = null;
+        res(rows);
+      } );
+    }
+
+    const qs = (sel,el) => (el||document).querySelector(sel);
+    const qsa = (sel,el) => Array.from((el||document).querySelectorAll(sel));
+
+    const height = 500;
+    const width = 1000;
+
+    const canv = document.getElementById('canv');
+    const ctx = canv.getContext('2d');
+
+    const from = qs( '#from' );
+    const to = qs( '#to' );
+    const fromReal = qs( '.real', from );
+    const fromImg = qs( '#from .imaginary' );
+
+    const toReal = qs( '#to .real' );
+    const toImg = qs( '#to .imaginary' );
+
+
+    window.addEventListener( 'popstate', ev => {
+      debugger;
+      fill( ev.state );
+    } );
+
+    const args = { height, width };
+    const m = document.location.search.match( /^\?([^#]+)/ );
+    if (m && m[1]) {
+      const parts = m[1].split(/&(amp;)?/).filter( x => x );
+      parts.forEach( p => {
+        let [k,v] = p.split( '=' );
+        v = parseFloat( v );
+        if (! isNaN( v )) {
+          args[k] = v;
+        }
+      } );
+    }
+
+    fill( args )
+       .then( rows => cycle( rows ) );
+
+
+    let coordReal = fromReal;
+    let coordImg = fromImg;
+
+    let start_x, end_x, start_y, end_y;
+
+
+    let start_rect_x, end_rect_x, start_rect_y, end_rect_y;
+    let makingRectangle = false;
+
+    qs( '#cycle' ).addEventListener( 'change', ev => {
+      cycleColors = ! cycleColors;
+    } );
+
+    canv.addEventListener( 'mousemove', ev => {
+      if (isFilling) return;
+      const rval = gridX[ev.offsetX];
+      const ival = gridY[ev.offsetY];
+      rval !== undefined && (coordReal.value = rval);
+      ival !== undefined && (coordImg.value = ival);
+      if (makingRectangle) {
+        // remove old rectangles
+        ctx.restore();
+
+        end_rect_x = ev.offsetX;
+        end_rect_y = ev.offsetY;
+
+        const width = Math.abs( end_rect_x - start_rect_x );
+        const height = Math.abs( end_rect_y - start_rect_y );
+
+        if (width && height) {
+
+          // add new rectangles
+          ctx.strokeStyle = 'black';
+          ctx.lineWidth = 1;
+          ctx.strokeRect( end_rect_x > start_rect_x ? start_rect_x : end_x,
+                          end_rect_y > start_rect_y ? start_rect_y : end_y,
+                          width,
+                          height );
+          ctx.strokeStyle = 'white';
+          ctx.strokeRect( (end_rect_x > start_rect_x ? start_rect_x : end_x)+1,
+                          (end_rect_y > start_rect_y ? start_rect_y : end_y)+1,
+                          width-2,
+                          height-2 );
+        }
+      }
+    } );
+
+    canv.addEventListener( 'mousedown', ev => {
+      if (isFilling) return;
+      start_rect_x = ev.offsetX;
+      start_rect_y = ev.offsetY;
+      start_x = gridX[start_rect_x];
+      start_y = gridY[start_rect_y];
+
+      coordReal = toReal;
+      coordImg = toImg;
+
+      makingRectangle = true;
+    } );
+
+    canv.addEventListener( 'mouseup', ev => {
+      if (isFilling) return;
+
+      makingRectangle = false;
+
+      end_rect_x = ev.offsetX;
+      end_rect_y = ev.offsetY;
+
+      end_x = gridX[end_rect_x];
+      end_y = gridY[end_rect_y];
+
+      coordReal = fromReal;
+      coordImg = fromImg;
+
+      navigate( {
+        start_x,
+        end_x,
+        start_y,
+        end_y,
+        height,
+        width } );
+    } );
+
+  </script>
+
+ </body>
+</html>
